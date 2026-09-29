@@ -1,5 +1,9 @@
 # 订阅合成器
 
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/sunwu51/subscription-composer)
+
+点击按钮可在自己的 Cloudflare 账户中创建独立部署。Cloudflare 会复制此公开仓库、创建并绑定新的 KV 命名空间，然后通过 Workers Builds 部署。部署表单中的 `ADMIN_SECRET` 必须填写你自己生成的 UUID，并妥善保存；它是管理令牌，也会作为本站 VLESS 节点的 UUID。此按钮不会关联或迁移作者已部署 Worker 中的 KV 数据；要维护已有 Worker，请看下文「GitHub 与已有 Worker」。
+
 一个 Cloudflare Worker 应用。每组输入信息作为一条 JSON 存在 Workers KV；管理页面创建、编辑和删除配置组；每组生成三个带独立令牌的 URL：
 
 | URL | 返回内容 |
