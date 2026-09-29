@@ -1,0 +1,20 @@
+{
+	"name": "subscription-composer",
+	"main": "src/worker.js",
+	"compatibility_date": "2026-09-29",
+	"assets": {
+		"directory": "./public",
+		"binding": "ASSETS"
+	},
+	"kv_namespaces": [
+		{
+			"binding": "CONFIGS",
+			"id": "4518854544fd44cd930ebc3d8c5f7d03"
+		}
+	],
+	"secrets": {
+		"required": [
+			"ADMIN_SECRET"
+		]
+	}
+}
