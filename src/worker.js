@@ -1,4 +1,4 @@
-import { validateConfig, randomToken, DEFAULT_SHADOWROCKET_CONF, UUID_PATTERN, WS_PATH } from './model.js';
+import { validateConfig, normalizeConfig, withRuntimeFirstHop, randomToken, DEFAULT_SHADOWROCKET_CONF, UUID_PATTERN, WS_PATH } from './model.js';
 import { generateMihomo, generateShadowrocketSubscription, generateShadowrocketConf } from './generate.js';
 import { handleVlessWebSocket } from './ws.js';
 
@@ -11,12 +11,6 @@ const validId = id => /^[0-9a-f]{24}$/.test(id);
 
 function isAdmin(request, env) {
   return Boolean(env.ADMIN_SECRET && request.headers.get('authorization') === `Bearer ${env.ADMIN_SECRET}`);
-}
-
-function withRuntimeCf(config, secret) {
-  return config.cf.mode === 'external'
-    ? config
-    : { ...config, cf: { ...config.cf, uuid: secret, wsPath: WS_PATH } };
 }
 
 async function fetchUpstream(url, agent) {
@@ -35,7 +29,7 @@ async function fetchUpstream(url, agent) {
 
 async function readConfig(env, id) {
   if (!validId(id)) return null;
-  return env.CONFIGS.get(key(id), 'json');
+  return normalizeConfig(await env.CONFIGS.get(key(id), 'json'));
 }
 
 async function handleAdmin(request, env, parts) {
@@ -69,7 +63,7 @@ async function handleAdmin(request, env, parts) {
   const input = JSON.parse(raw);
   const bundledUrl = new URL(DEFAULT_SHADOWROCKET_CONF, request.url).toString();
   if (input.upstreamShadowrocketConf === bundledUrl) input.upstreamShadowrocketConf = DEFAULT_SHADOWROCKET_CONF;
-  const data = validateConfig(input, new URL(request.url).hostname);
+  const data = validateConfig(input, new URL(request.url).hostname, env.ADMIN_SECRET);
   const id = creating ? randomToken(12) : parts[2];
   const c = { ...data, id, token: old?.token || randomToken(24), createdAt: old?.createdAt || new Date().toISOString() };
   await env.CONFIGS.put(key(id), JSON.stringify(c), { metadata: { name: c.name, updatedAt: c.updatedAt } });
@@ -78,17 +72,18 @@ async function handleAdmin(request, env, parts) {
 
 async function handleSubscription(request, env, parts) {
   if (request.method !== 'GET' || parts.length !== 4 || !validId(parts[1])) return error('未找到订阅', 404);
-  const c = await readConfig(env, parts[1]);
-  if (!c || c.token !== parts[2]) return error('未找到订阅', 404);
+  const stored = await readConfig(env, parts[1]);
+  if (!stored || stored.token !== parts[2]) return error('未找到订阅', 404);
+  const c = withRuntimeFirstHop(stored, env.ADMIN_SECRET);
   const kind = parts[3];
   let body, mime, usage = '';
   if (kind === 'mihomo.yaml') {
     const upstream = await fetchUpstream(c.upstreamMihomo, 'clash.meta');
-    body = generateMihomo(withRuntimeCf(c, env.ADMIN_SECRET), upstream.body);
+    body = generateMihomo(c, upstream.body);
     mime = 'text/yaml; charset=utf-8'; usage = upstream.usage;
   } else if (kind === 'shadowrocket.nodes') {
     const upstream = await fetchUpstream(c.upstreamMihomo, 'clash.meta');
-    body = generateShadowrocketSubscription(withRuntimeCf(c, env.ADMIN_SECRET), upstream.body);
+    body = generateShadowrocketSubscription(c, upstream.body);
     mime = 'text/plain; charset=utf-8'; usage = upstream.usage;
   } else if (kind === 'shadowrocket.conf') {
     let original;

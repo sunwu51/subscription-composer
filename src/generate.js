@@ -1,15 +1,23 @@
 import YAML from 'yaml';
-import { AI_DOMAINS, DEFAULT_DOMAINS } from './model.js';
+import { AI_DOMAINS, DEFAULT_DOMAINS, FIRST_HOP_GROUP, RESI_GROUP, CN_DIRECT_MIHOMO, CN_DIRECT_SHADOWROCKET } from './model.js';
+import { parseProxyUri, namedProxyUri } from './uri.js';
 import { mihomoNodesToShadowrocketLinks } from './convert.js';
 
-function workerNode(c) {
-  return {
-    name: 'cf-worker', type: 'vless', server: c.cf.domain, port: 443,
-    uuid: c.cf.uuid, udp: false, tls: true, servername: c.cf.domain,
-    'client-fingerprint': 'chrome', network: 'ws',
-    'ws-opts': { path: c.cf.wsPath, headers: { Host: c.cf.domain } }
-  };
+// The built-in Worker relay only forwards TCP.
+function firstHopNode(c) {
+  const node = parseProxyUri(c.firstHop.url);
+  return c.firstHop.mode === 'builtin' ? { ...node, udp: false } : node;
 }
+
+// QUIC to the AI domains is rejected unless every hop can carry UDP: the first
+// hop and each residential node (SOCKS5 with UDP). A stalled QUIC attempt makes
+// apps wait before falling back to TCP; REJECT makes them fall back at once.
+function rejectsUdp443(c) {
+  return !(firstHopNode(c).udp && c.residential.every(p => p.type === 'socks5' && p.udp));
+}
+
+const matchRule = rule => /^\s*MATCH\s*,/i.test(String(rule));
+const finalRule = line => /^\s*FINAL\s*,/i.test(line);
 
 export function generateMihomo(c, upstream = '') {
   let base = {};
@@ -22,27 +30,58 @@ export function generateMihomo(c, upstream = '') {
   for (const key of ['proxies', 'proxy-groups', 'rules']) {
     if (base[key] != null && !Array.isArray(base[key])) throw new Error(`原配置的 ${key} 不是列表`);
   }
+  const hop = firstHopNode(c);
+  const oldGroupList = base['proxy-groups'] || [];
+  if (oldGroupList.length && !oldGroupList[0]?.name) throw new Error('原配置的第一个分组缺少名称');
   const oldNames = new Set((base.proxies || []).map(p => p?.name));
-  const oldGroups = new Set((base['proxy-groups'] || []).map(p => p?.name));
-  const newNames = ['cf-worker', ...c.residential.map(p => p.name)];
+  const oldGroups = new Set(oldGroupList.map(p => p?.name));
+  const newNames = [hop.name, ...c.residential.map(p => p.name)];
   for (const name of newNames) if (oldNames.has(name) || oldGroups.has(name)) throw new Error(`原配置与新节点重名：${name}`);
-  if (oldGroups.has('US-RESI') || oldNames.has('US-RESI')) throw new Error('原配置已有 US-RESI 名称');
+  if (oldGroups.has(RESI_GROUP) || oldNames.has(RESI_GROUP)) throw new Error(`原配置已有 ${RESI_GROUP} 名称`);
+  // A dedicated group makes the fallback really use the first hop; the original
+  // first group keeps its own selection.
+  const ownGroup = !oldGroupList.length || c.match === 'first-hop';
+  if (ownGroup && (oldNames.has(FIRST_HOP_GROUP) || oldGroups.has(FIRST_HOP_GROUP)))
+    throw new Error(`原配置已有 ${FIRST_HOP_GROUP} 名称`);
   const residential = c.residential.map(p => ({
-    name: p.name, type: 'http', server: p.server, port: p.port,
-    username: p.username, password: p.password, 'dialer-proxy': 'cf-worker'
+    name: p.name, type: p.type, server: p.server, port: p.port,
+    username: p.username, password: p.password, ...(p.type === 'socks5' ? { udp: p.udp } : {}),
+    'dialer-proxy': hop.name
   }));
+  // A custom first hop goes second in every original group, so each group can
+  // pick it while its default (first) choice stays. The built-in relay is only
+  // appended to the first group.
+  const custom = c.firstHop.mode !== 'builtin';
+  const withHop = (group, index) => {
+    if (!custom && index > 0) return group;
+    const proxies = [...(group.proxies || [])];
+    if (custom) proxies.splice(1, 0, hop.name);
+    else proxies.push(hop.name);
+    return { ...group, proxies };
+  };
+  const hopGroups = [
+    ...(ownGroup ? [{ name: FIRST_HOP_GROUP, type: 'select', proxies: [hop.name] }] : []),
+    ...oldGroupList.map(withHop)
+  ];
+  const target = { DIRECT: 'DIRECT', RESI: RESI_GROUP, 'first-hop': FIRST_HOP_GROUP }[c.match];
   const prefix = [
-    ...(c.rejectUdp443 ? AI_DOMAINS.map(domain => `AND,((DOMAIN-SUFFIX,${domain}),(NETWORK,UDP),(DST-PORT,443)),REJECT`) : []),
-    ...DEFAULT_DOMAINS.map(([kind, value]) => `${kind},${value},US-RESI`)
+    ...(rejectsUdp443(c) ? AI_DOMAINS.map(domain => `AND,((DOMAIN-SUFFIX,${domain}),(NETWORK,UDP),(DST-PORT,443)),REJECT`) : []),
+    ...DEFAULT_DOMAINS.map(([kind, value]) => `${kind},${value},${RESI_GROUP}`)
   ];
   const oldRules = base.rules || [];
+  const cn = c.cnDirect ? CN_DIRECT_MIHOMO : [];
+  const matchAt = oldRules.findIndex(matchRule);
   const result = {
     ...base,
     ...(!upstream ? { 'mixed-port': 7890 } : {}),
     mode: 'rule',
-    proxies: [workerNode(c), ...residential, ...(base.proxies || [])],
-    'proxy-groups': [{ name: 'US-RESI', type: 'select', proxies: residential.map(p => p.name) }, ...(base['proxy-groups'] || [])],
-    rules: [...prefix, ...oldRules, ...(oldRules.length ? [] : ['MATCH,DIRECT'])]
+    proxies: [hop, ...residential, ...(base.proxies || [])],
+    'proxy-groups': [{ name: RESI_GROUP, type: 'select', proxies: residential.map(p => p.name) }, ...hopGroups],
+    rules: target
+      ? [...prefix, ...oldRules.filter(rule => !matchRule(rule)), ...cn, `MATCH,${target}`]
+      : matchAt >= 0
+        ? [...prefix, ...oldRules.slice(0, matchAt), ...cn, ...oldRules.slice(matchAt)]
+        : [...prefix, ...oldRules, ...cn, ...(oldRules.length ? [] : ['MATCH,DIRECT'])]
   };
   return YAML.stringify(result, { lineWidth: 0 });
 }
@@ -54,17 +93,9 @@ function b64(bytes) {
 }
 
 function newShadowrocketLinks(c) {
-  const vless = new URL(`vless://${c.cf.uuid}@${c.cf.domain}:443`);
-  vless.searchParams.set('encryption', 'none');
-  vless.searchParams.set('security', 'tls');
-  vless.searchParams.set('type', 'ws');
-  vless.searchParams.set('sni', c.cf.domain);
-  vless.searchParams.set('host', c.cf.domain);
-  vless.searchParams.set('path', c.cf.wsPath);
-  vless.hash = encodeURIComponent('cf-worker');
-  const links = [vless.toString()];
+  const links = [namedProxyUri(c.firstHop.url, firstHopNode(c).name)];
   for (const p of c.residential) {
-    const uri = new URL(`http://${p.server}:${p.port}`);
+    const uri = new URL(`${p.type}://${p.server}:${p.port}`);
     uri.username = p.username;
     uri.password = p.password;
     uri.hash = encodeURIComponent(p.name);
@@ -74,7 +105,8 @@ function newShadowrocketLinks(c) {
 }
 
 export function generateShadowrocketSubscription(c, upstream = '') {
-  const old = mihomoNodesToShadowrocketLinks(upstream, ['cf-worker', 'US-RESI', ...c.residential.map(p => p.name)]);
+  const reserved = [firstHopNode(c).name, RESI_GROUP, FIRST_HOP_GROUP, ...c.residential.map(p => p.name)];
+  const old = mihomoNodesToShadowrocketLinks(upstream, reserved);
   return b64(new TextEncoder().encode([...old, ...newShadowrocketLinks(c)].join('\n') + '\n'));
 }
 
@@ -104,14 +136,28 @@ export function generateShadowrocketConf(c, selfUrl = '', upstream = '') {
     sections.splice(groupIndex, 1);
     sections.splice(ruleIndex, 0, groups);
   }
-  if (groups.lines.some(line => /^\s*US-RESI\s*=/i.test(line))) throw new Error('原 Shadowrocket .conf 已有 US-RESI 分组');
-  groups.lines.unshift(`US-RESI = select, ${c.residential.map(p => p.name).join(', ')}`);
+  const hasGroup = name => groups.lines.some(line => line.split('=')[0].trim().toUpperCase() === name);
+  if (hasGroup(RESI_GROUP)) throw new Error(`原 Shadowrocket .conf 已有 ${RESI_GROUP} 分组`);
+  if (c.match === 'first-hop') {
+    if (hasGroup(FIRST_HOP_GROUP))
+      throw new Error(`原 Shadowrocket .conf 已有 ${FIRST_HOP_GROUP} 分组`);
+    groups.lines.unshift(`${FIRST_HOP_GROUP} = select, ${firstHopNode(c).name}`);
+  }
+  groups.lines.unshift(`${RESI_GROUP} = select, ${c.residential.map(p => p.name).join(', ')}`);
   const rules = section('Rule');
   const oldRules = rules.lines.filter(line => line.trim() && !line.trim().startsWith('#'));
   rules.lines.unshift(
-    ...(c.rejectUdp443 ? AI_DOMAINS.map(domain => `AND,((DOMAIN-SUFFIX,${domain}),(PROTOCOL,UDP),(DST-PORT,443)),REJECT-NO-DROP`) : []),
-    ...DEFAULT_DOMAINS.map(([kind, value]) => `${kind},${value},US-RESI`)
+    ...(rejectsUdp443(c) ? AI_DOMAINS.map(domain => `AND,((DOMAIN-SUFFIX,${domain}),(PROTOCOL,UDP),(DST-PORT,443)),REJECT-NO-DROP`) : []),
+    ...DEFAULT_DOMAINS.map(([kind, value]) => `${kind},${value},${RESI_GROUP}`)
   );
-  if (!oldRules.length) rules.lines.push('FINAL,PROXY');
+  const target = { DIRECT: 'DIRECT', RESI: RESI_GROUP, 'first-hop': FIRST_HOP_GROUP }[c.match];
+  const cn = c.cnDirect ? CN_DIRECT_SHADOWROCKET : [];
+  if (target) rules.lines = rules.lines.filter(line => !finalRule(line));
+  const finalAt = rules.lines.findIndex(finalRule);
+  if (finalAt >= 0) rules.lines.splice(finalAt, 0, ...cn);
+  else {
+    while (rules.lines.length && !rules.lines.at(-1).trim()) rules.lines.pop();
+    rules.lines.push(...cn, ...(target ? [`FINAL,${target}`] : oldRules.length ? [] : ['FINAL,PROXY']));
+  }
   return sections.map(s => `[${s.name}]\n${s.lines.join('\n').trim()}\n`).join('\n');
 }

@@ -2,22 +2,44 @@ const $ = s => document.querySelector(s);
 const form = $('#form');
 const defaultConfUrl = new URL('/shadowrocket-default.conf', location.origin).toString();
 form.elements.upstreamShadowrocketConf.defaultValue = defaultConfUrl;
-form.elements.domain.defaultValue = location.hostname;
 let current = null;
+let matchTouched = false;
 let adminToken = sessionStorage.getItem('adminToken') || '';
 $('#admin').value = adminToken;
 
-function syncCfFields() {
-  const external = form.elements.domain.value.trim().toLowerCase().replace(/\.$/, '') !== location.hostname.toLowerCase().replace(/\.$/, '');
-  $('#external-cf-fields').hidden = !external;
-  $('#external-cf-hint').hidden = !external;
-  $('#local-cf-hint').hidden = external;
-  for (const field of [form.elements.uuid, form.elements.wsPath]) {
-    field.disabled = !external;
-    field.required = external;
-  }
+// Mirrors builtinFirstHopUri in src/uri.js; the server recognises it and
+// stores the built-in relay without the UUID.
+function builtinHop(domain = location.hostname) {
+  const u = new URL(`vless://${adminToken}@${domain}:443`);
+  for (const [k, v] of Object.entries({ encryption: 'none', security: 'tls', type: 'ws', sni: domain, host: domain, path: '/ws', fp: 'chrome' }))
+    u.searchParams.set(k, v);
+  u.hash = 'cf-worker';
+  return u.toString();
 }
-form.elements.domain.addEventListener('input', syncCfFields);
+function hopName(link) {
+  link = link.trim();
+  try {
+    if (/^vmess:\/\//i.test(link)) return JSON.parse(atob(link.slice(8).split('#')[0])).ps?.trim() || 'first-hop';
+  } catch { return 'first-hop'; }
+  const hash = link.includes('#') ? link.slice(link.indexOf('#') + 1) : '';
+  try { return decodeURIComponent(hash).trim() || 'first-hop'; } catch { return hash || 'first-hop'; }
+}
+function syncHopName() {
+  const name = hopName(form.elements.firstHop.value);
+  document.querySelectorAll('.hop-name').forEach(el => { el.textContent = name; });
+}
+// Keeping the original MATCH needs an original subscription; default to it when there is one.
+function syncMatch() {
+  const hasUpstream = Boolean(form.elements.upstreamMihomo.value.trim());
+  const select = form.elements.match;
+  select.querySelector('option[value="upstream"]').disabled = !hasUpstream;
+  if (!matchTouched) select.value = hasUpstream ? 'upstream' : 'DIRECT';
+  else if (!hasUpstream && select.value === 'upstream') select.value = 'DIRECT';
+}
+form.elements.firstHop.addEventListener('input', syncHopName);
+form.elements.upstreamMihomo.addEventListener('input', syncMatch);
+form.elements.match.addEventListener('change', () => { matchTouched = true; });
+$('#builtin-hop').onclick = () => { form.elements.firstHop.value = builtinHop(); syncHopName(); };
 
 function setAuthenticated(connected) {
   $('#auth-card').hidden = connected;
@@ -42,14 +64,20 @@ async function api(path, options = {}) {
 }
 function row(data = {}) {
   const box = document.createElement('div'); box.className = 'proxy';
-  box.innerHTML = '<div class="proxy-head"><h4>HTTP 住宅节点</h4><button type="button" class="danger remove">移除</button></div><div class="grid"><label>名称<input data-key="name" required placeholder="伊利诺伊"></label><label>服务器<input data-key="server" required placeholder="38.213.131.218"></label><label>端口<input data-key="port" type="number" min="1" max="65535" required placeholder="20000"></label><label>用户名<input data-key="username" required></label><label>密码<input data-key="password" type="password" required></label></div>';
-  for (const [k, v] of Object.entries(data)) { const el = box.querySelector(`[data-key="${k}"]`); if (el) el.value = v; }
+  box.innerHTML = '<div class="proxy-head"><h4>住宅节点</h4><button type="button" class="danger remove">移除</button></div><div class="grid"><label>名称<input data-key="name" required placeholder="伊利诺伊"></label><label>类型<select data-key="type"><option value="http">HTTP</option><option value="socks5">SOCKS5</option></select></label><label class="udp-field">支持 UDP<select data-key="udp"><option value="true">是</option><option value="false">否</option></select></label><label>服务器<input data-key="server" required placeholder="38.213.131.218"></label><label>端口<input data-key="port" type="number" min="1" max="65535" required placeholder="20000"></label><label>用户名<input data-key="username" required></label><label>密码<input data-key="password" type="password" required></label></div>';
+  for (const [k, v] of Object.entries(data)) { const el = box.querySelector(`[data-key="${k}"]`); if (el) el.value = String(v); }
+  // SOCKS5 nodes default to UDP support; HTTP proxies never carry UDP.
+  const type = box.querySelector('[data-key="type"]');
+  const syncUdp = () => { box.querySelector('.udp-field').hidden = type.value !== 'socks5'; };
+  type.onchange = () => { box.querySelector('[data-key="udp"]').value = 'true'; syncUdp(); };
+  syncUdp();
   box.querySelector('.remove').onclick = () => { if ($('#proxies').children.length > 1) box.remove(); else status('至少保留一个住宅节点'); };
   $('#proxies').append(box);
 }
 function reset() {
   current = null; form.reset(); $('#proxies').replaceChildren(); row();
-  syncCfFields();
+  form.elements.firstHop.value = builtinHop(); syncHopName();
+  matchTouched = false; syncMatch();
   $('#form-title').textContent = '新建配置组'; $('#delete').hidden = true; $('#results').hidden = true; $('#saved-at').textContent = '';
   document.querySelectorAll('#list button').forEach(x => x.classList.remove('active'));
 }
@@ -58,11 +86,11 @@ function fill(c) {
   form.elements.upstreamMihomo.value = c.upstreamMihomo;
   form.elements.upstreamShadowrocketConf.value = !c.upstreamShadowrocketConf || c.upstreamShadowrocketConf === '/shadowrocket-default.conf'
     ? defaultConfUrl : c.upstreamShadowrocketConf;
-  form.elements.domain.value = c.cf.domain;
-  form.elements.uuid.value = c.cf.mode === 'external' ? c.cf.uuid : '';
-  form.elements.wsPath.value = c.cf.mode === 'external' ? c.cf.wsPath : '/ws';
-  syncCfFields();
-  form.elements.rejectUdp443.checked = c.rejectUdp443;
+  form.elements.firstHop.value = c.firstHop.mode === 'builtin' ? builtinHop(c.firstHop.domain) : c.firstHop.url;
+  syncHopName();
+  form.elements.match.value = c.match;
+  matchTouched = true; syncMatch();
+  form.elements.cnDirect.checked = c.cnDirect;
   $('#proxies').replaceChildren(); c.residential.forEach(row);
   $('#form-title').textContent = `编辑 · ${c.name}`; $('#delete').hidden = false; $('#saved-at').textContent = `更新于 ${new Date(c.updatedAt).toLocaleString()}`;
   showLinks(c);
@@ -102,6 +130,7 @@ $('#connect').onclick = async () => {
   try {
     await list();
     sessionStorage.setItem('adminToken', adminToken);
+    if (!current) reset();
     setAuthenticated(true);
     status('已连接');
   } catch (e) { status(e.message); }
@@ -119,13 +148,15 @@ $('#new').onclick = reset;
 $('#add-proxy').onclick = () => row();
 form.onsubmit = async e => {
   e.preventDefault();
-  const residential = [...$('#proxies').children].map(box => Object.fromEntries([...box.querySelectorAll('[data-key]')].map(el => [el.dataset.key, el.value])));
+  const residential = [...$('#proxies').children].map(box => {
+    const p = Object.fromEntries([...box.querySelectorAll('[data-key]')].map(el => [el.dataset.key, el.value]));
+    return { ...p, udp: p.type === 'socks5' && p.udp === 'true' };
+  });
   const data = {
     name: form.elements.name.value, upstreamMihomo: form.elements.upstreamMihomo.value,
     upstreamShadowrocketConf: form.elements.upstreamShadowrocketConf.value,
-    cf: { domain: form.elements.domain.value,
-      ...(form.elements.uuid.disabled ? {} : { uuid: form.elements.uuid.value, wsPath: form.elements.wsPath.value }) },
-    residential, rejectUdp443: form.elements.rejectUdp443.checked
+    firstHop: { url: form.elements.firstHop.value }, match: form.elements.match.value,
+    residential, cnDirect: form.elements.cnDirect.checked
   };
   try {
     const saved = await api(current ? `/api/configs/${current.id}` : '/api/configs', {
