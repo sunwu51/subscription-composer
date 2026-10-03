@@ -106,13 +106,24 @@ function showLinks(c) {
   for (const [title, url] of links) {
     const box = document.createElement('div'); box.className = 'link-row';
     const label = document.createElement('b'); label.textContent = title;
-    const a = document.createElement('a'); a.href = url; a.textContent = url; a.target = '_blank'; a.rel = 'noreferrer';
     const copy = document.createElement('button'); copy.type = 'button'; copy.className = 'secondary'; copy.textContent = '复制地址';
     copy.onclick = async () => { await navigator.clipboard.writeText(url); status('已复制'); };
-    box.append(label, a, document.createElement('br'), copy); $('#links').append(box);
+    const qr = document.createElement('button'); qr.type = 'button'; qr.className = 'secondary'; qr.textContent = '二维码';
+    qr.onclick = () => showQr(title, url);
+    const actions = document.createElement('div'); actions.className = 'link-actions'; actions.append(copy, qr);
+    box.append(label, actions); $('#links').append(box);
   }
   $('#results').hidden = false;
 }
+// Rendered locally so the tokenised subscription URL never leaves the browser.
+function showQr(title, url) {
+  const code = qrcode(0, 'M'); code.addData(url); code.make();
+  $('#qr-title').textContent = title;
+  $('#qr-code').innerHTML = code.createSvgTag({ cellSize: 4, margin: 4, scalable: true });
+  $('#qr-dialog').showModal();
+}
+$('#qr-close').onclick = () => $('#qr-dialog').close();
+$('#qr-dialog').addEventListener('click', event => { if (event.target === event.currentTarget) event.currentTarget.close(); });
 async function list() {
   const items = await api('/api/configs');
   $('#list').replaceChildren();

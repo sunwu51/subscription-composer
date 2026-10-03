@@ -6,6 +6,7 @@
   <title>订阅合成器</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/style.css">
+  <script src="/vendor/qrcode.js" defer></script>
   <script src="/app.js" defer></script>
 </head>
 <body>
@@ -29,6 +30,7 @@
         <section id="results" class="card" hidden><h2>生成结果</h2><div id="links"></div><div class="note"><h3>iPhone · Shadowrocket 操作步骤</h3><ol><li>在首页把「节点订阅」地址作为 Subscribe 导入。</li><li>在「配置」中添加远程 <code>.conf</code> 地址，启用它，并把全局路由设为「配置」。</li><li>逐个打开住宅节点右侧的 ⓘ，在「代理通过」选择第一跳节点 <code class="hop-name">cf-worker</code>，保存。不要给 <code class="hop-name">cf-worker</code> 自己设置代理通过。</li><li>在「设置 → 订阅」开启「保持代理通过」；更新后核查链式关系。</li></ol><p>UDP 443 拒绝仅针对所列 OpenAI / Claude 域名；实际命中仍取决于客户端能否识别该 UDP 连接的域名。新节点的导入及链式关系请在 iPhone 上验证。</p></div></section>
       </div>
     </div>
+    <dialog id="qr-dialog"><div class="section-head"><h2 id="qr-title"></h2><button id="qr-close" type="button" class="secondary">关闭</button></div><div id="qr-code"></div><small>用 Shadowrocket 等客户端扫码导入；二维码包含订阅令牌，请勿外泄。</small></dialog>
     <p id="status" role="status"></p>
   </main>
 </body>
