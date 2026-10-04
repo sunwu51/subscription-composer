@@ -68,4 +68,5 @@ Shadowrocket 的节点订阅和 `.conf` 不能等同于 Mihomo 完整 YAML。当
 - 自定义第一跳插入 Mihomo 原订阅每个分组的第 2 位（不改变各分组的默认选择）；本站 Worker 中转只追加到第一个分组末尾；兜底选第一跳分组，或原订阅没有分组时，新建只含第一跳节点的 `FIRST-HOP` 分组。
 - 住宅代理可选 HTTP（默认）或 SOCKS5；SOCKS5 可标记是否支持 UDP（默认支持，服务商实际不支持时请改为否）。住宅分组名为 `RESI`（旧版的 `US-RESI` 兜底选项读取时自动迁移）。
 - 兜底规则可选：沿用原订阅（需填写 Mihomo 原订阅，为默认值）、`DIRECT`（未填原订阅时的默认值）、`RESI` 住宅分组、第一跳分组（`FIRST-HOP`）。选「沿用原订阅」时，Mihomo 原规则若非空，保持原样接在新规则后面，**不额外添加** `MATCH`；若没有原规则才添加 `MATCH,DIRECT`；Shadowrocket `.conf` 保留原 `FINAL`，没有规则时添加 `FINAL,PROXY`。选其他项时，原规则中的 `MATCH` / `FINAL` 被移除，并在末尾写入所选目标；Shadowrocket 选第一跳分组时新增 `FIRST-HOP = select, <第一跳节点>` 分组。
+- 未填写 Mihomo 原订阅时，生成的配置额外写入 `mixed-port: 7890` 和 `dns` 段（`redir-host` 模式，国内 DoH 为主、Cloudflare 等为 fallback，配置见 `src/model.js` 的 `DEFAULT_MIHOMO_DNS`）；填写原订阅时沿用原配置的 DNS，不做改动。
 - 「兜底前追加中国大陆直连」默认勾选（旧配置读取时也视为勾选）：Mihomo 在 `MATCH` 正前方插入 `GEOSITE,CN,DIRECT`、`GEOIP,CN,DIRECT`，使用客户端内置的 geo 数据库；Shadowrocket 在 `FINAL` 正前方插入 [blackmatrix7 China 规则集](https://github.com/blackmatrix7/ios_rule_script/tree/master/rule/Shadowrocket/China)（`RULE-SET`）和 `GEOIP,CN,DIRECT`。原订阅已有同类规则时重复一条无副作用。

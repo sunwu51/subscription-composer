@@ -1,5 +1,5 @@
 import YAML from 'yaml';
-import { AI_DOMAINS, DEFAULT_DOMAINS, FIRST_HOP_GROUP, RESI_GROUP, CN_DIRECT_MIHOMO, CN_DIRECT_SHADOWROCKET } from './model.js';
+import { AI_DOMAINS, DEFAULT_DOMAINS, FIRST_HOP_GROUP, RESI_GROUP, CN_DIRECT_MIHOMO, CN_DIRECT_SHADOWROCKET, DEFAULT_MIHOMO_DNS } from './model.js';
 import { parseProxyUri, namedProxyUri } from './uri.js';
 import { mihomoNodesToShadowrocketLinks } from './convert.js';
 
@@ -73,7 +73,7 @@ export function generateMihomo(c, upstream = '') {
   const matchAt = oldRules.findIndex(matchRule);
   const result = {
     ...base,
-    ...(!upstream ? { 'mixed-port': 7890 } : {}),
+    ...(!upstream ? { 'mixed-port': 7890, dns: DEFAULT_MIHOMO_DNS } : {}),
     mode: 'rule',
     proxies: [hop, ...residential, ...(base.proxies || [])],
     'proxy-groups': [{ name: RESI_GROUP, type: 'select', proxies: residential.map(p => p.name) }, ...hopGroups],

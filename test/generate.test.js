@@ -50,6 +50,15 @@ test('Mihomo adds a fallback only when the original rules are empty', () => {
   assert.equal(fresh.rules.at(-1), 'MATCH,DIRECT');
 });
 
+test('Mihomo adds redir-host DNS only without an original subscription', () => {
+  const standalone = YAML.parse(generateMihomo(c));
+  assert.equal(standalone.dns['enhanced-mode'], 'redir-host');
+  assert.equal(standalone.dns['fake-ip-range'], undefined);
+  assert.deepEqual(standalone.dns.nameserver, ['https://doh.pub/dns-query', 'https://dns.alidns.com/dns-query']);
+  const merged = YAML.parse(generateMihomo(c, YAML.stringify({ proxies: [], rules: [] })));
+  assert.equal(merged.dns, undefined);
+});
+
 test('Shadowrocket converts supported Mihomo nodes and uses the supplied default conf', () => {
   const old = YAML.stringify({
     proxies: [{ name: 'old', type: 'trojan', server: 'old.example.com', port: 443, password: 'secret' }],

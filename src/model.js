@@ -19,6 +19,19 @@ export const CN_DIRECT_SHADOWROCKET = [
   'RULE-SET,https://cdn.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Shadowrocket/China/China.list,DIRECT',
   'GEOIP,CN,DIRECT'
 ];
+// DNS for a Mihomo config built without an original subscription. redir-host
+// returns real IPs instead of fake-ip addresses.
+export const DEFAULT_MIHOMO_DNS = {
+  enable: true,
+  ipv6: false,
+  'default-nameserver': ['223.5.5.5', '119.29.29.29'],
+  'proxy-server-nameserver': ['223.5.5.5', '223.6.6.6', 'https://dns.alidns.com/dns-query'],
+  'enhanced-mode': 'redir-host',
+  'use-hosts': true,
+  nameserver: ['https://doh.pub/dns-query', 'https://dns.alidns.com/dns-query'],
+  fallback: ['https://dns.cloudflare.com/dns-query', 'https://223.5.5.5/dns-query', 'https://223.6.6.6/dns-query'],
+  'fallback-filter': { geoip: true, ipcidr: ['240.0.0.0/4', '0.0.0.0/32'] }
+};
 export const DEFAULT_SHADOWROCKET_CONF = '/shadowrocket-default.conf';
 export const WS_PATH = '/ws';
 export const FIRST_HOP_GROUP = 'FIRST-HOP';
