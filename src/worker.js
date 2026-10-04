@@ -97,7 +97,8 @@ async function handleSubscription(request, env, parts) {
     body = generateShadowrocketConf(c, request.url, original);
     mime = 'text/plain; charset=utf-8';
   } else return error('未找到订阅', 404);
-  const headers = { 'content-type': mime, 'cache-control': 'private, no-store', 'x-robots-tag': 'noindex' };
+  // profile-update-interval is in hours: Clash clients auto-refresh every 24h (1440 min)
+  const headers = { 'content-type': mime, 'cache-control': 'private, no-store', 'x-robots-tag': 'noindex', 'profile-update-interval': '24' };
   if (usage) headers['subscription-userinfo'] = usage;
   return new Response(body, { headers });
 }

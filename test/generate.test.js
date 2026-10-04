@@ -130,6 +130,7 @@ test('Worker stores one JSON object per group and serves tokenized URLs', async 
   const url = `https://site.example.com/s/${saved.id}/${saved.token}/mihomo.yaml`;
   const result = await worker.fetch(new Request(url), env);
   assert.equal(result.status, 200);
+  assert.equal(result.headers.get('profile-update-interval'), '24');
   assert.equal(YAML.parse(await result.text()).proxies[1]['dialer-proxy'], 'cf-worker');
   assert.equal(YAML.parse(await (await worker.fetch(new Request(url), env)).text()).proxies[0].uuid, secret);
   const shadowConf = await worker.fetch(new Request(url.replace('mihomo.yaml', 'shadowrocket.conf')), env);
