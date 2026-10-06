@@ -2,7 +2,7 @@
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/sunwu51/subscription-composer)
 
-点击按钮可在自己的 Cloudflare 账户中创建独立部署。Cloudflare 会复制此公开仓库、创建并绑定新的 KV 命名空间，然后通过 Workers Builds 部署。部署表单中的 `ADMIN_SECRET` 必须填写你自己生成的 UUID，并妥善保存；它是管理令牌，也会作为本站 VLESS 节点的 UUID。此按钮不会关联或迁移作者已部署 Worker 中的 KV 数据；要维护已有 Worker，请看下文「GitHub 与已有 Worker」。
+点击按钮可在自己的 Cloudflare 账户中创建独立部署。Cloudflare 会复制此公开仓库、创建并绑定新的 KV 命名空间，然后通过 Workers Builds 部署。部署表单中的 `ADMIN_SECRET` 必须填写你自己生成的 UUID，并妥善保存；它是管理令牌。此按钮不会关联或迁移作者已部署 Worker 中的 KV 数据；要维护已有 Worker，请看下文「GitHub 与已有 Worker」。
 
 一个 Cloudflare Worker 应用。每组输入信息作为一条 JSON 存在 Workers KV；管理页面创建、编辑和删除配置组；每组生成三个带独立令牌的 URL：
 
@@ -32,7 +32,7 @@ npx wrangler secret put ADMIN_SECRET
 npm run deploy
 ```
 
-浏览器打开部署命令给出的 HTTPS 地址，初始只显示管理令牌卡片；连接成功后才显示配置管理页面。「第一跳节点」是一条分享链接，住宅节点经它链式连接（Mihomo `dialer-proxy`）。默认填入本站 Worker 中转的 VLESS 链接（节点名 `cf-worker`，UUID 为 `ADMIN_SECRET`，WebSocket 路径 `/ws`），保存时识别为本站中转，KV 中不保存 UUID；点击「恢复本站中转」可重新填入。也可换成任意自建节点的分享链接，例如 233boy 脚本 `sb url` 输出的 Hysteria2 / VLESS Reality 链接。支持 `vless://`、`vmess://`、`trojan://`、`ss://`（不含插件）、`hysteria2://`（`hy2://`）、`tuic://`、`anytls://`、`socks5://`、`http(s)://`；`#` 后的文字是节点名，缺省时为 `first-hop`。Mihomo 端由链接转换成节点；Hysteria2 链接可追加 `up`、`down` 参数（Mbps）写入 Mihomo 带宽。Shadowrocket 端原样下发该链接，只把名称固定为同一节点名。配置 JSON 存在绑定的 KV 命名空间中；项目不使用 Node 本地 JSON 数据文件。KV 键名为 `config:<id>`，每条值含原订阅 URL、第一跳节点、兜底规则、住宅代理账号密码和订阅访问令牌；自定义第一跳时保存完整链接（含其密码或 UUID）。旧版保存的 CF 域名配置读取时自动转换，重新保存后改为新格式。请限制 Cloudflare 账户与 KV 的访问权限。
+浏览器打开部署命令给出的 HTTPS 地址，初始只显示管理令牌卡片；连接成功后才显示配置管理页面。「第一跳节点」是一条分享链接（必填，无默认值），住宅节点经它链式连接（Mihomo `dialer-proxy`）。填写自建节点的分享链接，例如 233boy 脚本 `sb url` 输出的 Hysteria2 / VLESS Reality 链接。本 Worker 只生成订阅，不提供代理中转。支持 `vless://`、`vmess://`、`trojan://`、`ss://`（不含插件）、`hysteria2://`（`hy2://`）、`tuic://`、`anytls://`、`socks5://`、`http(s)://`；`#` 后的文字是节点名，缺省时为 `first-hop`。Mihomo 端由链接转换成节点；Hysteria2 链接可追加 `up`、`down` 参数（Mbps）写入 Mihomo 带宽。Shadowrocket 端原样下发该链接，只把名称固定为同一节点名。配置 JSON 存在绑定的 KV 命名空间中；项目不使用 Node 本地 JSON 数据文件。KV 键名为 `config:<id>`，每条值含原订阅 URL、第一跳节点、兜底规则、住宅代理账号密码和订阅访问令牌；第一跳保存完整链接（含其密码或 UUID）。旧版保存的 CF 域名配置读取时自动转换，重新保存后改为新格式。旧版使用「本站 Worker 中转」作为第一跳的配置组，在重新填写第一跳并保存之前，订阅请求会返回 409。请限制 Cloudflare 账户与 KV 的访问权限。
 
 本地开发可创建一个**不提交**的 `.dev.vars` 文件，内容为 `ADMIN_SECRET=你的UUID`，然后运行 `npm run dev`。默认使用本地 KV；生产部署仍绑定 `wrangler.jsonc` 中现有的 `CONFIGS` 命名空间。`npm test` 运行合并与 Worker 接口测试。`npx wrangler deploy --dry-run` 可在不发布的情况下检查打包。
 
@@ -52,20 +52,19 @@ npm run deploy
 
 1. 首页添加节点订阅 URL。
 2. 「配置」页面添加远程 `.conf` URL，启用后将全局路由设为「配置」。
-3. 逐个打开住宅节点的 `ⓘ → 代理通过`，选择第一跳节点（默认 `cf-worker`，自定义时为链接 `#` 后的名称）。不要给第一跳节点自身设置代理通过。
+3. 逐个打开住宅节点的 `ⓘ → 代理通过`，选择第一跳节点（链接 `#` 后的名称，缺省为 `first-hop`）。不要给第一跳节点自身设置代理通过。
 4. 在「设置 → 订阅」开启「保持代理通过」，并在更新后检查链式关系。
 
-Shadowrocket 的节点订阅和 `.conf` 不能等同于 Mihomo 完整 YAML。当前版本不会自动下发 Shadowrocket 的链式关系；应用页面也明确显示了手动步骤。UDP 443 拒绝规则不再手动勾选：第一跳支持 UDP（本站 Worker 中转和 `http://` 不支持），且所有住宅节点都是支持 UDP 的 SOCKS5 时不添加；否则两端都对 OpenAI/Claude 域名拒绝 UDP 443，让 App 立即改走 TCP。该规则只有客户端能识别 UDP 连接的域名时才会命中。Shadowrocket URI 导入行为受客户端版本影响，首次使用请在 iPhone 上检查节点、分组以及规则是否正确识别。
+Shadowrocket 的节点订阅和 `.conf` 不能等同于 Mihomo 完整 YAML。当前版本不会自动下发 Shadowrocket 的链式关系；应用页面也明确显示了手动步骤。UDP 443 拒绝规则不再手动勾选：第一跳支持 UDP（`http://` 不支持），且所有住宅节点都是支持 UDP 的 SOCKS5 时不添加；否则两端都对 OpenAI/Claude 域名拒绝 UDP 443，让 App 立即改走 TCP。该规则只有客户端能识别 UDP 连接的域名时才会命中。Shadowrocket URI 导入行为受客户端版本影响，首次使用请在 iPhone 上检查节点、分组以及规则是否正确识别。
 
 ## 安全与限制
 
 - 订阅 URL 中的 `<token>` 是访问凭据；拿到它的人能读取包含代理账号密码的配置。不要公开分享 URL。删除配置组会使 URL 失效，受 KV 传播延迟影响，失效不是全球瞬时的。
 - 管理接口每次请求都需要 `Authorization: Bearer <ADMIN_SECRET>` 请求头；管理令牌不放在请求体内。网页仅把令牌放入本标签页的 `sessionStorage`。客户端更新订阅时无需管理令牌，使用 URL 路径里的独立 `<token>`。
-- 第一跳使用本站 Worker 中转时，`ADMIN_SECRET` 也是 VLESS UUID，会直接出现在 Mihomo 和 Shadowrocket 节点订阅中。持有这类订阅链接的人能读出它并调用全部管理接口。不要向不应拥有管理权限的人分享订阅链接；使用自定义第一跳时，节点订阅不会包含本站的 `ADMIN_SECRET`。
 - 原订阅只允许 HTTPS，单个响应上限 2 MB，读取超时 20 秒。
 - Mihomo 原配置与新增节点或 `RESI` 重名时，生成会报错，以免静默覆盖。
 - 域名路由使用明确的 `DOMAIN-SUFFIX`，不再用 `DOMAIN-KEYWORD`。规则列表在 `src/model.js` 中：OpenAI 域名参考其[网络建议](https://help.openai.com/en/articles/9247338-network-recommendations-for-chatgpt-errors-on-web-and-apps)，Claude 域名参考其[网络访问说明](https://support.claude.com/en/articles/13198485-enforce-network-level-access-control-with-tenant-restrictions)。`ipinfo.io` 仍路由到住宅组，但不列入 UDP 443 拒绝范围。
-- 自定义第一跳插入 Mihomo 原订阅每个分组的第 2 位（不改变各分组的默认选择）；本站 Worker 中转只追加到第一个分组末尾；兜底选第一跳分组，或原订阅没有分组时，新建只含第一跳节点的 `FIRST-HOP` 分组。
+- 第一跳插入 Mihomo 原订阅每个分组的第 2 位（不改变各分组的默认选择）；兜底选第一跳分组，或原订阅没有分组时，新建只含第一跳节点的 `FIRST-HOP` 分组。
 - 住宅代理可选 HTTP（默认）或 SOCKS5；SOCKS5 可标记是否支持 UDP（默认支持，服务商实际不支持时请改为否）。住宅分组名为 `RESI`（旧版的 `US-RESI` 兜底选项读取时自动迁移）。
 - 兜底规则可选：沿用原订阅（需填写 Mihomo 原订阅，为默认值）、`DIRECT`（未填原订阅时的默认值）、`RESI` 住宅分组、第一跳分组（`FIRST-HOP`）。选「沿用原订阅」时，Mihomo 原规则若非空，保持原样接在新规则后面，**不额外添加** `MATCH`；若没有原规则才添加 `MATCH,DIRECT`；Shadowrocket `.conf` 保留原 `FINAL`，没有规则时添加 `FINAL,PROXY`。选其他项时，原规则中的 `MATCH` / `FINAL` 被移除，并在末尾写入所选目标；Shadowrocket 选第一跳分组时新增 `FIRST-HOP = select, <第一跳节点>` 分组。
 - 未填写 Mihomo 原订阅时，生成的配置额外写入 `mixed-port: 7890` 和 `dns` 段（`redir-host` 模式，国内 DoH 为主、Cloudflare 等为 fallback，配置见 `src/model.js` 的 `DEFAULT_MIHOMO_DNS`）；填写原订阅时沿用原配置的 DNS，不做改动。

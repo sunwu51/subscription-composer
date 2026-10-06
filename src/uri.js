@@ -174,11 +174,3 @@ export function namedProxyUri(input, name) {
   }
   return `${raw.split('#')[0]}#${encodeURIComponent(name)}`;
 }
-
-export function builtinFirstHopUri(domain, uuid, wsPath) {
-  const u = new URL(`vless://${uuid}@${domain}:443`);
-  for (const [k, v] of Object.entries({ encryption: 'none', security: 'tls', type: 'ws', sni: domain,
-    host: domain, path: wsPath, fp: 'chrome' })) u.searchParams.set(k, v);
-  u.hash = 'cf-worker';
-  return u.toString();
-}

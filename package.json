@@ -14,7 +14,7 @@
   "cloudflare": {
     "bindings": {
       "ADMIN_SECRET": {
-        "description": "填写你自己生成的 UUID，作为管理令牌和本站 VLESS 节点 UUID。请妥善保存；PowerShell 可用 [guid]::NewGuid().ToString() 生成。"
+        "description": "填写你自己生成的 UUID，作为管理令牌。请妥善保存；PowerShell 可用 [guid]::NewGuid().ToString() 生成。"
       }
     }
   }

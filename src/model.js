@@ -1,4 +1,4 @@
-import { parseProxyUri, builtinFirstHopUri } from './uri.js';
+import { parseProxyUri } from './uri.js';
 
 // Exact suffixes match the apex and its subdomains, never arbitrary occurrences
 // such as gpt.haha.com. Keep the IP-check site out of UDP blocking.
@@ -33,18 +33,17 @@ export const DEFAULT_MIHOMO_DNS = {
   'fallback-filter': { geoip: true, ipcidr: ['240.0.0.0/4', '0.0.0.0/32'] }
 };
 export const DEFAULT_SHADOWROCKET_CONF = '/shadowrocket-default.conf';
-export const WS_PATH = '/ws';
 export const FIRST_HOP_GROUP = 'FIRST-HOP';
 export const RESI_GROUP = 'RESI';
 // 'upstream' keeps the original MATCH / FINAL; 'first-hop' is the group holding the first hop.
 export const MATCH_TARGETS = ['upstream', 'DIRECT', 'RESI', 'first-hop'];
 export const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export function validateConfig(raw, currentHost = '', secret = '') {
+export function validateConfig(raw) {
   const name = String(raw.name || '').trim();
   if (!name || name.length > 80) throw new Error('请填写配置名称（最多 80 字）');
-  const firstHop = validateFirstHop(raw.firstHop, currentHost, secret);
-  const hopName = parseProxyUri(firstHop.url || builtinFirstHopUri(currentHost, secret, WS_PATH)).name;
+  const firstHop = validateFirstHop(raw.firstHop);
+  const hopName = parseProxyUri(firstHop.url).name;
   const residential = raw.residential;
   if (!Array.isArray(residential) || residential.length < 1 || residential.length > 30) throw new Error('请填写 1–30 个住宅代理');
   const seen = new Set([hopName, RESI_GROUP, FIRST_HOP_GROUP]);
@@ -91,37 +90,35 @@ export function validateConfig(raw, currentHost = '', secret = '') {
   };
 }
 
-// The built-in Worker relay is stored without its UUID (ADMIN_SECRET), which is
-// filled in when a subscription is generated.
-function validateFirstHop(input, currentHost, secret) {
+function validateFirstHop(input) {
   const url = String(input?.url || '').trim();
   if (!url) throw new Error('请填写第一跳节点链接');
   if (url.length > 4096) throw new Error('第一跳节点链接过长');
-  const node = JSON.stringify(parseProxyUri(url));
-  if (secret && node === JSON.stringify(parseProxyUri(builtinFirstHopUri(currentHost, secret, WS_PATH))))
-    return { mode: 'builtin', domain: currentHost };
-  return { mode: 'custom', url };
+  parseProxyUri(url);
+  return { url };
 }
 
-// Configs saved before the first hop became a share link carry `cf` instead.
+// Configs that used the removed built-in Worker relay get an empty first hop,
+// which must be set again before subscriptions work. Configs saved before the
+// first hop became a share link carry `cf` instead.
+function legacyFirstHopUrl({ firstHop, cf }) {
+  if (firstHop) return firstHop.mode === 'builtin' ? '' : firstHop.url;
+  if (cf?.mode !== 'external') return '';
+  const u = new URL(`vless://${cf.uuid}@${cf.domain}:443`);
+  for (const [k, v] of Object.entries({ encryption: 'none', security: 'tls', type: 'ws', sni: cf.domain,
+    host: cf.domain, path: cf.wsPath, fp: 'chrome' })) u.searchParams.set(k, v);
+  u.hash = 'cf-worker';
+  return u.toString();
+}
+
 export function normalizeConfig(c) {
   if (!c) return c;
   // Earlier versions named the residential group US-RESI and only had HTTP nodes.
   const match = c.match === 'US-RESI' ? RESI_GROUP : c.match ?? 'upstream';
   const cnDirect = c.cnDirect ?? true;
   const residential = c.residential.map(p => ({ type: 'http', udp: false, ...p }));
-  if (c.firstHop) return { ...c, match, cnDirect, residential };
   const { cf, ...rest } = c;
-  const firstHop = cf?.mode === 'external'
-    ? { mode: 'custom', url: builtinFirstHopUri(cf.domain, cf.uuid, cf.wsPath) }
-    : { mode: 'builtin', domain: cf?.domain };
-  return { ...rest, match, cnDirect, residential, firstHop };
-}
-
-export function withRuntimeFirstHop(c, secret) {
-  return c.firstHop.mode === 'builtin'
-    ? { ...c, firstHop: { ...c.firstHop, url: builtinFirstHopUri(c.firstHop.domain, secret, WS_PATH) } }
-    : c;
+  return { ...rest, match, cnDirect, residential, firstHop: { url: legacyFirstHopUrl(c) } };
 }
 
 export function randomToken(bytes = 24) {

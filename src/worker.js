@@ -1,6 +1,5 @@
-import { validateConfig, normalizeConfig, withRuntimeFirstHop, randomToken, DEFAULT_SHADOWROCKET_CONF, UUID_PATTERN, WS_PATH } from './model.js';
+import { validateConfig, normalizeConfig, randomToken, DEFAULT_SHADOWROCKET_CONF, UUID_PATTERN } from './model.js';
 import { generateMihomo, generateShadowrocketSubscription, generateShadowrocketConf } from './generate.js';
-import { handleVlessWebSocket } from './ws.js';
 
 const json = (value, status = 200) => new Response(JSON.stringify(value), {
   status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }
@@ -63,7 +62,7 @@ async function handleAdmin(request, env, parts) {
   const input = JSON.parse(raw);
   const bundledUrl = new URL(DEFAULT_SHADOWROCKET_CONF, request.url).toString();
   if (input.upstreamShadowrocketConf === bundledUrl) input.upstreamShadowrocketConf = DEFAULT_SHADOWROCKET_CONF;
-  const data = validateConfig(input, new URL(request.url).hostname, env.ADMIN_SECRET);
+  const data = validateConfig(input);
   const id = creating ? randomToken(12) : parts[2];
   const c = { ...data, id, token: old?.token || randomToken(24), createdAt: old?.createdAt || new Date().toISOString() };
   await env.CONFIGS.put(key(id), JSON.stringify(c), { metadata: { name: c.name, updatedAt: c.updatedAt } });
@@ -72,9 +71,9 @@ async function handleAdmin(request, env, parts) {
 
 async function handleSubscription(request, env, parts) {
   if (request.method !== 'GET' || parts.length !== 4 || !validId(parts[1])) return error('未找到订阅', 404);
-  const stored = await readConfig(env, parts[1]);
-  if (!stored || stored.token !== parts[2]) return error('未找到订阅', 404);
-  const c = withRuntimeFirstHop(stored, env.ADMIN_SECRET);
+  const c = await readConfig(env, parts[1]);
+  if (!c || c.token !== parts[2]) return error('未找到订阅', 404);
+  if (!c.firstHop.url) return error('第一跳节点未设置，请在管理页面重新填写后保存', 409);
   const kind = parts[3];
   let body, mime, usage = '';
   if (kind === 'mihomo.yaml') {
@@ -107,13 +106,7 @@ export default {
   async fetch(request, env) {
     try {
       if (!UUID_PATTERN.test(env.ADMIN_SECRET || '')) return error('ADMIN_SECRET 必须是 UUID', 500);
-      const pathname = new URL(request.url).pathname;
-      const parts = pathname.split('/').filter(Boolean);
-      if (pathname === WS_PATH) {
-        if (request.method !== 'GET' || request.headers.get('upgrade')?.toLowerCase() !== 'websocket')
-          return new Response('WebSocket required', { status: 426 });
-        return await handleVlessWebSocket(request, env.ADMIN_SECRET);
-      }
+      const parts = new URL(request.url).pathname.split('/').filter(Boolean);
       if (!env.CONFIGS) return error('缺少 KV 绑定 CONFIGS', 500);
       if (parts[0] === 'api' && parts[1] === 'configs') return await handleAdmin(request, env, parts);
       if (parts[0] === 's') return await handleSubscription(request, env, parts);

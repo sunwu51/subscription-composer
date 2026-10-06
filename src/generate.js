@@ -3,10 +3,8 @@ import { AI_DOMAINS, DEFAULT_DOMAINS, FIRST_HOP_GROUP, RESI_GROUP, CN_DIRECT_MIH
 import { parseProxyUri, namedProxyUri } from './uri.js';
 import { mihomoNodesToShadowrocketLinks } from './convert.js';
 
-// The built-in Worker relay only forwards TCP.
 function firstHopNode(c) {
-  const node = parseProxyUri(c.firstHop.url);
-  return c.firstHop.mode === 'builtin' ? { ...node, udp: false } : node;
+  return parseProxyUri(c.firstHop.url);
 }
 
 // QUIC to the AI domains is rejected unless every hop can carry UDP: the first
@@ -48,15 +46,11 @@ export function generateMihomo(c, upstream = '') {
     username: p.username, password: p.password, ...(p.type === 'socks5' ? { udp: p.udp } : {}),
     'dialer-proxy': hop.name
   }));
-  // A custom first hop goes second in every original group, so each group can
-  // pick it while its default (first) choice stays. The built-in relay is only
-  // appended to the first group.
-  const custom = c.firstHop.mode !== 'builtin';
-  const withHop = (group, index) => {
-    if (!custom && index > 0) return group;
+  // The first hop goes second in every original group, so each group can pick
+  // it while its default (first) choice stays.
+  const withHop = group => {
     const proxies = [...(group.proxies || [])];
-    if (custom) proxies.splice(1, 0, hop.name);
-    else proxies.push(hop.name);
+    proxies.splice(1, 0, hop.name);
     return { ...group, proxies };
   };
   const hopGroups = [

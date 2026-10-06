@@ -7,15 +7,6 @@ let matchTouched = false;
 let adminToken = sessionStorage.getItem('adminToken') || '';
 $('#admin').value = adminToken;
 
-// Mirrors builtinFirstHopUri in src/uri.js; the server recognises it and
-// stores the built-in relay without the UUID.
-function builtinHop(domain = location.hostname) {
-  const u = new URL(`vless://${adminToken}@${domain}:443`);
-  for (const [k, v] of Object.entries({ encryption: 'none', security: 'tls', type: 'ws', sni: domain, host: domain, path: '/ws', fp: 'chrome' }))
-    u.searchParams.set(k, v);
-  u.hash = 'cf-worker';
-  return u.toString();
-}
 function hopName(link) {
   link = link.trim();
   try {
@@ -39,7 +30,6 @@ function syncMatch() {
 form.elements.firstHop.addEventListener('input', syncHopName);
 form.elements.upstreamMihomo.addEventListener('input', syncMatch);
 form.elements.match.addEventListener('change', () => { matchTouched = true; });
-$('#builtin-hop').onclick = () => { form.elements.firstHop.value = builtinHop(); syncHopName(); };
 
 function setAuthenticated(connected) {
   $('#auth-card').hidden = connected;
@@ -76,7 +66,7 @@ function row(data = {}) {
 }
 function reset() {
   current = null; form.reset(); $('#proxies').replaceChildren(); row();
-  form.elements.firstHop.value = builtinHop(); syncHopName();
+  syncHopName();
   matchTouched = false; syncMatch();
   $('#form-title').textContent = '新建配置组'; $('#delete').hidden = true; $('#results').hidden = true; $('#saved-at').textContent = '';
   document.querySelectorAll('#list button').forEach(x => x.classList.remove('active'));
@@ -86,7 +76,7 @@ function fill(c) {
   form.elements.upstreamMihomo.value = c.upstreamMihomo;
   form.elements.upstreamShadowrocketConf.value = !c.upstreamShadowrocketConf || c.upstreamShadowrocketConf === '/shadowrocket-default.conf'
     ? defaultConfUrl : c.upstreamShadowrocketConf;
-  form.elements.firstHop.value = c.firstHop.mode === 'builtin' ? builtinHop(c.firstHop.domain) : c.firstHop.url;
+  form.elements.firstHop.value = c.firstHop.url;
   syncHopName();
   form.elements.match.value = c.match;
   matchTouched = true; syncMatch();
@@ -94,6 +84,7 @@ function fill(c) {
   $('#proxies').replaceChildren(); c.residential.forEach(row);
   $('#form-title').textContent = `编辑 · ${c.name}`; $('#delete').hidden = false; $('#saved-at').textContent = `更新于 ${new Date(c.updatedAt).toLocaleString()}`;
   showLinks(c);
+  if (!c.firstHop.url) status('原第一跳是已移除的本站中转，请填写新的第一跳节点后保存');
 }
 function showLinks(c) {
   const root = `${location.origin}/s/${c.id}/${c.token}`;
